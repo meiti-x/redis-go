@@ -21,6 +21,10 @@ func handleConnection(conn net.Conn) {
 		if strings.ToUpper(msg) == "PING" {
 			conn.Write([]byte("+PONG\r\n"))
 		}
+
+		echo_message := strings.Split(strings.ToLower(msg), "echo")[1]
+		echo_message = strings.TrimSpace(echo_message) + "\r\n"
+		conn.Write([]byte(echo_message))
 	}
 }
 func main() {
