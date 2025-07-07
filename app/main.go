@@ -23,11 +23,10 @@ func handleConnection(conn net.Conn) {
 		case strings.ToUpper(msg) == "PING":
 			conn.Write([]byte("+PONG\r\n"))
 		case strings.HasPrefix(strings.ToUpper(msg), "ECHO "):
-			echo_message := strings.Split(strings.ToLower(msg), "echo")[1]
-			echo_message = strings.TrimSpace(echo_message)
-			if echo_message != "" {
-				echo_message += "\r\n"
-			}
+			echo_message := strings.TrimSpace(msg[5:])
+
+			resp := fmt.Sprintf("$%d\r\n%s\r\n", len(echo_message), echo_message)
+			conn.Write([]byte(resp))
 			conn.Write([]byte(echo_message))
 		}
 
