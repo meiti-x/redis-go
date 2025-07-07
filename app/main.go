@@ -19,7 +19,7 @@ func handleConnection(conn net.Conn) {
 	for scanner.Scan() {
 		msg := strings.TrimSpace(scanner.Text())
 		if strings.ToUpper(msg) == "PING" {
-			conn.Write([]byte("PONG\r\n"))
+			conn.Write([]byte("+PONG\r\n"))
 		}
 	}
 }
