@@ -18,16 +18,19 @@ func handleConnection(conn net.Conn) {
 
 	for scanner.Scan() {
 		msg := strings.TrimSpace(scanner.Text())
-		if strings.ToUpper(msg) == "PING" {
+
+		switch {
+		case strings.ToUpper(msg) == "PING":
 			conn.Write([]byte("+PONG\r\n"))
+		case strings.HasPrefix(strings.ToUpper(msg), "ECHO "):
+			echo_message := strings.Split(strings.ToLower(msg), "echo")[1]
+			echo_message = strings.TrimSpace(echo_message)
+			if echo_message != "" {
+				echo_message += "\r\n"
+			}
+			conn.Write([]byte(echo_message))
 		}
 
-		echo_message := strings.Split(strings.ToLower(msg), "echo")[1]
-		echo_message = strings.TrimSpace(echo_message)
-		if echo_message != "" {
-			echo_message += "\r\n"
-		}
-		conn.Write([]byte(echo_message))
 	}
 }
 func main() {
