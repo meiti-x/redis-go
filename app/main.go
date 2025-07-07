@@ -23,7 +23,10 @@ func handleConnection(conn net.Conn) {
 		}
 
 		echo_message := strings.Split(strings.ToLower(msg), "echo")[1]
-		echo_message = strings.TrimSpace(echo_message) + "\r\n"
+		echo_message = strings.TrimSpace(echo_message)
+		if echo_message != "" {
+			echo_message += "\r\n"
+		}
 		conn.Write([]byte(echo_message))
 	}
 }
