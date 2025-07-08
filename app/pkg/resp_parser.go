@@ -9,86 +9,85 @@ import (
 	"strings"
 )
 
-func Parse(r *bufio.Reader) (string, error) {
+func parseCommand(line string) (string, []string, error) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "", nil, errors.New("empty command")
+	}
+
+	parts := strings.Split(line, " ")
+	if len(parts) == 0 {
+		return "", nil, errors.New("invalid command format")
+	}
+
+	command := parts[0]
+	var args []string
+	if len(parts) > 1 {
+		args = parts[1:]
+	}
+
+	return command, args, nil
+}
+
+// Parse reads a RESP command from the provided bufio.Reader and returns the response as a string.
+func Parse(r *bufio.Reader) (string, []string, error) {
 	line, err := r.ReadString('\n')
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	line = strings.TrimSpace(line)
 	if len(line) == 0 {
-		return "", errors.New("empty command")
+		return "", nil, errors.New("empty command")
 	}
 
-	switch line[0] {
-	case '*': // Array
+	if line[0] == '*' {
 		count, err := strconv.Atoi(line[1:])
 		if err != nil {
-			return "", fmt.Errorf("invalid array count: %v", err)
+			return "", nil, fmt.Errorf("invalid array count: %v", err)
 		}
 
 		args := make([]string, 0, count)
 		for i := 0; i < count; i++ {
-			// Read the bulk string header
+
 			bulkHeader, err := r.ReadString('\n')
 			if err != nil {
-				return "", fmt.Errorf("reading bulk header: %v", err)
+				return "", nil, fmt.Errorf("reading bulk header: %v", err)
 			}
 
 			bulkHeader = strings.TrimSpace(bulkHeader)
 			if len(bulkHeader) == 0 || bulkHeader[0] != '$' {
-				return "", errors.New("invalid bulk string header")
+				return "", nil, errors.New("invalid bulk string header")
 			}
 
 			length, err := strconv.Atoi(bulkHeader[1:])
 			if err != nil {
-				return "", fmt.Errorf("invalid bulk length: %v", err)
+				return "", nil, fmt.Errorf("invalid bulk length: %v", err)
 			}
 
 			// Read the bulk string content
 			bulkContent := make([]byte, length)
 			_, err = io.ReadFull(r, bulkContent)
 			if err != nil {
-				return "", fmt.Errorf("reading bulk content: %v", err)
+				return "", nil, fmt.Errorf("reading bulk content: %v", err)
 			}
 
 			// Read the trailing \r\n
 			_, err = r.ReadString('\n')
 			if err != nil {
-				return "", fmt.Errorf("reading bulk terminator: %v", err)
+				return "", nil, fmt.Errorf("reading bulk terminator: %v", err)
 			}
 
 			args = append(args, string(bulkContent))
+			return args[0], args, nil
+
 		}
 
 		if len(args) == 0 {
-			return "", errors.New("empty command array")
+			return "", nil, errors.New("empty command array")
 		}
 
-		command := strings.ToUpper(args[0])
-		switch command {
-		case "PING":
-			return "+PONG\r\n", nil
-		case "ECHO":
-			if len(args) < 2 {
-				return "", errors.New("ECHO requires an argument")
-			}
-			return fmt.Sprintf("$%d\r\n%s\r\n", len(args[1]), args[1]), nil
-		default:
-			return "", fmt.Errorf("unknown command: %s", command)
-		}
-
-	default:
-		// Simple string or inline command (for backward compatibility)
-		command := strings.ToUpper(line)
-		switch {
-		case command == "PING":
-			return "+PONG\r\n", nil
-		case strings.HasPrefix(command, "ECHO "):
-			echoMsg := strings.TrimSpace(line[5:])
-			return fmt.Sprintf("$%d\r\n%s\r\n", len(echoMsg), echoMsg), nil
-		default:
-			return "", fmt.Errorf("unknown command: %s", line)
-		}
 	}
+
+	return parseCommand(line)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	resp "github.com/codecrafters-io/redis-starter-go/app/pkg"
 )
@@ -14,18 +15,23 @@ func handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 
 	for {
-		// Read the raw command from the connection
-		response, err := resp.Parse(reader)
+		command, args, err := resp.Parse(reader)
 		if err != nil {
 			conn.Write([]byte("-ERR " + err.Error() + "\r\n"))
 			return
 		}
 
-		// Write the response back to the client
-		_, err = conn.Write([]byte(response))
-		if err != nil {
-			return
+		command = strings.ToUpper(command)
+		switch command {
+		case "PING":
+			conn.Write([]byte("+PONG\r\n"))
+		case "ECHO":
+			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(args[0]), args[0])))
+
+		default:
+			conn.Write([]byte("write a Valid command\r\n"))
 		}
+
 	}
 }
 
