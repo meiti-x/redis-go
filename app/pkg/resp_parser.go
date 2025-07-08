@@ -9,27 +9,6 @@ import (
 	"strings"
 )
 
-func parseCommand(line string) (string, []string, error) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return "", nil, errors.New("empty command")
-	}
-
-	parts := strings.Split(line, " ")
-	if len(parts) == 0 {
-		return "", nil, errors.New("invalid command format")
-	}
-
-	command := parts[0]
-	var args []string
-	if len(parts) > 1 {
-		args = parts[1:]
-	}
-
-	return command, args, nil
-}
-
-// Parse reads a RESP command from the provided bufio.Reader and returns the response as a string.
 func Parse(r *bufio.Reader) (string, []string, error) {
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -41,7 +20,8 @@ func Parse(r *bufio.Reader) (string, []string, error) {
 		return "", nil, errors.New("empty command")
 	}
 
-	if line[0] == '*' {
+	switch line[0] {
+	case '*': // Array type
 		count, err := strconv.Atoi(line[1:])
 		if err != nil {
 			return "", nil, fmt.Errorf("invalid array count: %v", err)
@@ -49,7 +29,7 @@ func Parse(r *bufio.Reader) (string, []string, error) {
 
 		args := make([]string, 0, count)
 		for i := 0; i < count; i++ {
-
+			// Read bulk string header
 			bulkHeader, err := r.ReadString('\n')
 			if err != nil {
 				return "", nil, fmt.Errorf("reading bulk header: %v", err)
@@ -60,34 +40,47 @@ func Parse(r *bufio.Reader) (string, []string, error) {
 				return "", nil, errors.New("invalid bulk string header")
 			}
 
+			// Read bulk string length
 			length, err := strconv.Atoi(bulkHeader[1:])
 			if err != nil {
 				return "", nil, fmt.Errorf("invalid bulk length: %v", err)
 			}
 
-			// Read the bulk string content
+			// Read bulk string content
 			bulkContent := make([]byte, length)
 			_, err = io.ReadFull(r, bulkContent)
 			if err != nil {
 				return "", nil, fmt.Errorf("reading bulk content: %v", err)
 			}
 
-			// Read the trailing \r\n
+			// Read trailing \r\n
 			_, err = r.ReadString('\n')
 			if err != nil {
 				return "", nil, fmt.Errorf("reading bulk terminator: %v", err)
 			}
 
 			args = append(args, string(bulkContent))
-			return args[0], args, nil
-
 		}
 
 		if len(args) == 0 {
 			return "", nil, errors.New("empty command array")
 		}
 
-	}
+		// First argument is the command, rest are arguments
+		return strings.ToUpper(args[0]), args[1:], nil
 
-	return parseCommand(line)
+	default: // Simple string/inline command
+		parts := strings.Split(line, " ")
+		if len(parts) == 0 {
+			return "", nil, errors.New("invalid command format")
+		}
+
+		command := strings.ToUpper(parts[0])
+		var args []string
+		if len(parts) > 1 {
+			args = parts[1:]
+		}
+
+		return command, args, nil
+	}
 }
