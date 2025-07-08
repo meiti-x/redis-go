@@ -5,33 +5,30 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
-)
 
-var _ = net.Listen
-var _ = os.Exit
+	resp "github.com/codecrafters-io/redis-starter-go/app/pkg"
+)
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
+	reader := bufio.NewReader(conn)
 
-	scanner := bufio.NewScanner(conn)
-
-	for scanner.Scan() {
-		msg := strings.TrimSpace(scanner.Text())
-
-		switch {
-		case strings.ToUpper(msg) == "PING":
-			conn.Write([]byte("+PONG\r\n"))
-		case strings.HasPrefix(strings.ToUpper(msg), "ECHO "):
-			echo_message := strings.TrimSpace(msg[5:])
-
-			resp := fmt.Sprintf("$%d\r\n%s\r\n", len(echo_message), echo_message)
-			conn.Write([]byte(resp))
-			conn.Write([]byte(echo_message))
+	for {
+		// Read the raw command from the connection
+		response, err := resp.Parse(reader)
+		if err != nil {
+			conn.Write([]byte("-ERR " + err.Error() + "\r\n"))
+			return
 		}
 
+		// Write the response back to the client
+		_, err = conn.Write([]byte(response))
+		if err != nil {
+			return
+		}
 	}
 }
+
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
@@ -47,5 +44,4 @@ func main() {
 		}
 		go handleConnection(conn)
 	}
-
 }
