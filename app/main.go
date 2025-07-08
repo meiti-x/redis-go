@@ -6,9 +6,15 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 
 	resp "github.com/codecrafters-io/redis-starter-go/app/pkg"
 )
+
+var store = struct {
+	sync.RWMutex
+	m map[string]string
+}{m: make(map[string]string)}
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
@@ -27,7 +33,19 @@ func handleConnection(conn net.Conn) {
 			conn.Write([]byte("+PONG\r\n"))
 		case "ECHO":
 			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(args[0]), args[0])))
+		case "SET":
+			store.Lock()
+			store.m[args[0]] = args[1]
+			store.Unlock()
 
+			conn.Write([]byte("+OK\r\n"))
+		case "GET":
+			value, isExist := store.m[args[0]]
+			if !isExist {
+				conn.Write([]byte("null bulk string\r\n"))
+				return
+			}
+			conn.Write([]byte(value + "\r\n"))
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}
