@@ -49,7 +49,7 @@ func handleConnection(conn net.Conn) {
 				conn.Write([]byte("null bulk string\r\n"))
 				return
 			}
-			conn.Write([]byte(value + "\r\n"))
+			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)))
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}
