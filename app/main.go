@@ -34,13 +34,17 @@ func handleConnection(conn net.Conn) {
 		case "ECHO":
 			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(args[0]), args[0])))
 		case "SET":
+			// Allows other readers not any write
 			store.Lock()
 			store.m[args[0]] = args[1]
 			store.Unlock()
 
 			conn.Write([]byte("+OK\r\n"))
 		case "GET":
+			store.RLock()
 			value, isExist := store.m[args[0]]
+			store.RUnlock()
+
 			if !isExist {
 				conn.Write([]byte("null bulk string\r\n"))
 				return
