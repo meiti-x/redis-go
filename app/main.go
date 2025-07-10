@@ -78,25 +78,27 @@ func handleConnection(conn net.Conn) {
 			item, isExist := store.items[args[0]]
 			if isExist {
 				if item.Expiry == -1 {
+					store.RUnlock()
 					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(item.Value), item.Value)))
-					return
+					continue
 				}
 
 				if item.Expiry > 0 && item.Expiry < int(time.Now().UnixMilli()) {
+					store.RUnlock()
+					store.Lock()
 					delete(store.items, args[0])
-					isExist = false
+					store.Unlock()
+					conn.Write([]byte("$-1\r\n"))
+					continue
 				}
 
+				store.RUnlock()
+				conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(item.Value), item.Value)))
+				continue
 			}
-
 			store.RUnlock()
 
-			if !isExist {
-				conn.Write([]byte("$-1\r\nnull bulk string\r\n"))
-				return
-			}
-
-			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(item.Value), item.Value)))
+			conn.Write([]byte("$-1\r\n")) // Correct null bulk string response
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}
