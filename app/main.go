@@ -21,11 +21,45 @@ type StoreItem struct {
 type ConcurrentStore struct {
 	sync.RWMutex
 	items map[string]StoreItem
+	stop  chan struct{}
 }
 
 func NewConcurrentStore() *ConcurrentStore {
-	return &ConcurrentStore{
+	store := &ConcurrentStore{
 		items: make(map[string]StoreItem),
+		stop:  make(chan struct{}),
+	}
+	go store.startCleanupJob()
+	return store
+}
+
+func (s *ConcurrentStore) Stop() {
+	close(s.stop)
+}
+
+func (s *ConcurrentStore) startCleanupJob() {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.cleanupExpiredItems()
+		}
+	}
+}
+
+func (s *ConcurrentStore) cleanupExpiredItems() {
+	s.Lock()
+	defer s.Unlock()
+
+	currentTime := int(time.Now().UnixMilli())
+	for key, item := range s.items {
+		if item.Expiry > 0 && item.Expiry < currentTime {
+			fmt.Printf("Removing expired item: %s\n", key)
+			delete(s.items, key)
+		}
 	}
 }
 
@@ -98,7 +132,7 @@ func handleConnection(conn net.Conn) {
 			}
 			store.RUnlock()
 
-			conn.Write([]byte("$-1\r\n")) // Correct null bulk string response
+			conn.Write([]byte("$-1\r\n"))
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}
