@@ -5,20 +5,34 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	resp "github.com/codecrafters-io/redis-starter-go/app/pkg"
 )
 
-var store = struct {
+type StoreItem struct {
+	Value  string
+	Expiry int
+}
+
+type ConcurrentStore struct {
 	sync.RWMutex
-	m map[string]string
-}{m: make(map[string]string)}
+	items map[string]StoreItem
+}
+
+func NewConcurrentStore() *ConcurrentStore {
+	return &ConcurrentStore{
+		items: make(map[string]StoreItem),
+	}
+}
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
+	store := NewConcurrentStore()
 
 	for {
 		command, args, err := resp.Parse(reader)
@@ -34,22 +48,55 @@ func handleConnection(conn net.Conn) {
 		case "ECHO":
 			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(args[0]), args[0])))
 		case "SET":
-			// Allows other readers not any write
+			expiry := 0
+
+			// Check for PX argument if there are enough args
+			if len(args) >= 4 && strings.ToUpper(args[2]) == "PX" {
+				expiryMillis, err := strconv.Atoi(args[3])
+				if err != nil || expiryMillis <= 0 {
+					conn.Write([]byte("-ERR invalid expiry value\r\n"))
+					return
+				}
+				if expiryMillis == 0 {
+					expiry = -1
+				} else {
+					expiry = int(time.Now().UnixMilli()) + expiryMillis
+				}
+
+			}
+
 			store.Lock()
-			store.m[args[0]] = args[1]
+			store.items[args[0]] = StoreItem{
+				Value:  args[1],
+				Expiry: expiry,
+			}
 			store.Unlock()
 
 			conn.Write([]byte("+OK\r\n"))
 		case "GET":
 			store.RLock()
-			value, isExist := store.m[args[0]]
+			item, isExist := store.items[args[0]]
+			if isExist {
+				if item.Expiry == -1 {
+					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(item.Value), item.Value)))
+					return
+				}
+
+				if item.Expiry > 0 && item.Expiry < int(time.Now().UnixMilli()) {
+					delete(store.items, args[0])
+					isExist = false
+				}
+
+			}
+
 			store.RUnlock()
 
 			if !isExist {
 				conn.Write([]byte("null bulk string\r\n"))
 				return
 			}
-			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)))
+
+			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(item.Value), item.Value)))
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}
