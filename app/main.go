@@ -92,7 +92,7 @@ func handleConnection(conn net.Conn) {
 			store.RUnlock()
 
 			if !isExist {
-				conn.Write([]byte("null bulk string\r\n"))
+				conn.Write([]byte("$-1\r\nnull bulk string\r\n"))
 				return
 			}
 
