@@ -56,6 +56,8 @@ func ResolveStreamID(entryID string, lastID string) (string, int64, uint64, erro
 	}
 
 	if seqPart == "*" {
+		fmt.Println("Using auto-increment for sequence number")
+		fmt.Println("Last ID:", lastID)
 		if lastID != "" {
 			lastParts := strings.Split(lastID, "-")
 			lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
@@ -67,7 +69,7 @@ func ResolveStreamID(entryID string, lastID string) (string, int64, uint64, erro
 				seq = 0
 			}
 		} else {
-			seq = 0
+			seq = 1
 		}
 	} else {
 		var err error
