@@ -193,17 +193,54 @@ func HandleConnection(conn net.Conn) {
 			stream_name := args[0]
 			entry_id := args[1]
 
-			if entry_id == "*" {
-				now := time.Now().UnixMilli()
-
-				if now == store.lastTime {
-					store.lastSeq++
-				} else {
-					store.lastTime = now
-					store.lastSeq = 0
+			// Validate entry_id if it's not "*"
+			if entry_id != "*" {
+				entryParts := strings.Split(entry_id, "-")
+				if len(entryParts) != 2 {
+					conn.Write([]byte("-ERR Invalid stream ID format\r\n"))
+					continue
+				}
+				ms, err1 := strconv.ParseInt(entryParts[0], 10, 64)
+				seq, err2 := strconv.ParseUint(entryParts[1], 10, 64)
+				if err1 != nil || err2 != nil {
+					conn.Write([]byte("-ERR Invalid stream ID numbers\r\n"))
+					continue
 				}
 
-				entry_id = strconv.FormatInt(now, 10) + "-" + strconv.FormatUint(store.lastSeq, 10)
+				store.StreamStore.mu.Lock()
+				stream, exists := store.StreamStore.entry[stream_name]
+				if !exists || len(stream.values) == 0 {
+					// valid only if greater than 0-0
+					if ms < 0 || (ms == 0 && seq == 0) {
+						store.StreamStore.mu.Unlock()
+						conn.Write([]byte("-ERR The ID must be greater than 0-0\r\n"))
+						continue
+					}
+				} else {
+					var lastMS int64
+					var lastSeq uint64
+					for id := range stream.values {
+						parts := strings.Split(id, "-")
+						if len(parts) != 2 {
+							continue
+						}
+						cms, _ := strconv.ParseInt(parts[0], 10, 64)
+						cseq, _ := strconv.ParseUint(parts[1], 10, 64)
+
+						// set max
+						if cms > lastMS || (cms == lastMS && cseq > lastSeq) {
+							lastMS = cms
+							lastSeq = cseq
+						}
+					}
+					// Now compare new ID
+					if ms < lastMS || (ms == lastMS && seq <= lastSeq) {
+						store.StreamStore.mu.Unlock()
+						conn.Write([]byte("-ERR The ID is not greater than the last stream ID\r\n"))
+						continue
+					}
+				}
+				store.StreamStore.mu.Unlock()
 			}
 
 			var pairs [][]string
