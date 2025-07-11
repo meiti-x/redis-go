@@ -236,7 +236,7 @@ func HandleConnection(conn net.Conn) {
 					// Now compare new ID
 					if ms < lastMS || (ms == lastMS && seq <= lastSeq) {
 						store.StreamStore.mu.Unlock()
-						conn.Write([]byte("-ERR The ID is not greater than the last stream ID\r\n"))
+						conn.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
 						continue
 					}
 				}
