@@ -241,6 +241,11 @@ func HandleConnection(conn net.Conn) {
 					continue
 				}
 
+				if ms == 0 && seq == 0 {
+					conn.Write([]byte("-ERR The ID specified in XADD must be greater than 0-0\r\n"))
+					continue
+				}
+
 				// Case 1: Stream is empty — must be greater than 0-0
 				if stream.lastID == "" {
 					if ms < 0 || (ms == 0 && seq == 0) {
