@@ -133,6 +133,16 @@ func handleConnection(conn net.Conn) {
 			store.RUnlock()
 
 			conn.Write([]byte("$-1\r\n"))
+
+		case "TYPE":
+			_, isExist := store.items[args[0]]
+			if isExist {
+				conn.Write([]byte("+string\r\n"))
+				continue
+
+			}
+
+			conn.Write([]byte("+none\r\n"))
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}
