@@ -6,98 +6,17 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/codecrafters-io/redis-starter-go/app/internal/xadd"
 	resp "github.com/codecrafters-io/redis-starter-go/app/pkg"
+	redisStore "github.com/codecrafters-io/redis-starter-go/app/pkg/store"
 )
-
-type StoreItem struct {
-	Value  string
-	Expiry int
-}
-
-type Stream struct {
-	id     string
-	values map[string]string
-	lastID string
-}
-
-type SetStore struct {
-	sync.RWMutex
-	items      map[string]StoreItem
-	entries_mu sync.RWMutex
-	entry      map[string]Stream
-	stop       chan struct{}
-}
-
-type StreamStore struct {
-	mu       sync.RWMutex
-	entry    map[string]Stream
-	stop     chan struct{}
-	lastTime int64
-	lastSeq  uint64
-}
-
-type Store struct {
-	StreamStore
-	SetStore
-}
-
-func NewConcurrentStore() *Store {
-	set_store := &SetStore{
-		items: make(map[string]StoreItem),
-		entry: make(map[string]Stream),
-		stop:  make(chan struct{}),
-	}
-	stream_store := &StreamStore{
-		entry: make(map[string]Stream),
-		stop:  make(chan struct{}),
-	}
-	// Cleanup expired items in set
-	go set_store.startCleanupJob()
-
-	return &Store{
-		SetStore:    *set_store,
-		StreamStore: *stream_store,
-	}
-
-}
-
-func (s *SetStore) Stop() {
-	close(s.stop)
-}
-
-func (s *SetStore) startCleanupJob() {
-	ticker := time.NewTicker(3 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.stop:
-			return
-		case <-ticker.C:
-			s.cleanupExpiredItems()
-		}
-	}
-}
-
-func (s *SetStore) cleanupExpiredItems() {
-	s.Lock()
-	defer s.Unlock()
-
-	currentTime := int(time.Now().UnixMilli())
-	for key, item := range s.items {
-		if item.Expiry > 0 && item.Expiry < currentTime {
-			fmt.Printf("Removing expired item: %s\n", key)
-			delete(s.items, key)
-		}
-	}
-}
 
 func HandleConnection(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
-	store := NewConcurrentStore()
+	store := redisStore.NewRedisStore()
 
 	for {
 		command, args, err := resp.Parse(reader)
@@ -131,7 +50,7 @@ func HandleConnection(conn net.Conn) {
 			}
 
 			store.SetStore.Lock()
-			store.items[args[0]] = StoreItem{
+			store.Items[args[0]] = redisStore.StoreItem{
 				Value:  args[1],
 				Expiry: expiry,
 			}
@@ -140,7 +59,7 @@ func HandleConnection(conn net.Conn) {
 			conn.Write([]byte("+OK\r\n"))
 		case "GET":
 			store.SetStore.RLock()
-			item, isExist := store.items[args[0]]
+			item, isExist := store.Items[args[0]]
 			if isExist {
 				if item.Expiry == -1 {
 					store.SetStore.RUnlock()
@@ -151,7 +70,7 @@ func HandleConnection(conn net.Conn) {
 				if item.Expiry > 0 && item.Expiry < int(time.Now().UnixMilli()) {
 					store.SetStore.RUnlock()
 					store.SetStore.Lock()
-					delete(store.items, args[0])
+					delete(store.Items, args[0])
 					store.SetStore.Unlock()
 					conn.Write([]byte("$-1\r\n"))
 					continue
@@ -166,8 +85,8 @@ func HandleConnection(conn net.Conn) {
 			conn.Write([]byte("$-1\r\n"))
 
 		case "TYPE":
-			_, isExist := store.items[args[0]]
-			_, isStreamExist := store.StreamStore.entry[args[0]]
+			_, isExist := store.Items[args[0]]
+			_, isStreamExist := store.StreamStore.Entry[args[0]]
 
 			if isStreamExist {
 				conn.Write([]byte("+stream\r\n"))
@@ -181,106 +100,7 @@ func HandleConnection(conn net.Conn) {
 
 			conn.Write([]byte("+none\r\n"))
 		case "XADD":
-			if len(args) < 3 {
-				conn.Write([]byte("-ERR wrong number of arguments for 'xadd' command\r\n"))
-				continue
-			}
-			fields := args[2:]
-			if len(fields)%2 != 0 {
-				conn.Write([]byte("-ERR wrong number of fields for 'xadd' command\r\n"))
-				continue
-			}
-
-			stream_name := args[0]
-			entry_id := args[1]
-
-			var ms int64
-			var seq uint64
-
-			store.StreamStore.mu.Lock()
-			stream, exists := store.StreamStore.entry[stream_name]
-			if !exists {
-				stream = Stream{
-					id:     stream_name,
-					values: make(map[string]string),
-					lastID: "",
-				}
-			}
-
-			if entry_id == "*" {
-				now := time.Now().UnixMilli()
-				if stream.lastID != "" {
-					lastParts := strings.Split(stream.lastID, "-")
-					lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
-					lastSeq, _ := strconv.ParseUint(lastParts[1], 10, 64)
-
-					if now == lastMS {
-						seq = lastSeq + 1
-					} else {
-						seq = 0
-					}
-				} else {
-					seq = 0
-				}
-				ms = now
-				entry_id = fmt.Sprintf("%d-%d", ms, seq)
-			} else {
-				entryParts := strings.Split(entry_id, "-")
-				if len(entryParts) != 2 {
-					store.StreamStore.mu.Unlock()
-					conn.Write([]byte("-ERR Invalid stream ID format\r\n"))
-					continue
-				}
-				var err1 error
-				var err2 error
-				ms, err1 = strconv.ParseInt(entryParts[0], 10, 64)
-				seq, err2 = strconv.ParseUint(entryParts[1], 10, 64)
-				if err1 != nil || err2 != nil {
-					store.StreamStore.mu.Unlock()
-					conn.Write([]byte("-ERR Invalid stream ID numbers\r\n"))
-					continue
-				}
-
-				if ms == 0 && seq == 0 {
-					conn.Write([]byte("-ERR The ID specified in XADD must be greater than 0-0\r\n"))
-					continue
-				}
-
-				// Case 1: Stream is empty — must be greater than 0-0
-				if stream.lastID == "" {
-					if ms < 0 || (ms == 0 && seq == 0) {
-						store.StreamStore.mu.Unlock()
-						conn.Write([]byte("-ERR The ID specified in XADD must be greater than 0-0\r\n"))
-						continue
-					}
-				}
-
-				// Case 2: Stream has a last ID — must be strictly greater
-				if stream.lastID != "" {
-					lastParts := strings.Split(stream.lastID, "-")
-					lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
-					lastSeq, _ := strconv.ParseUint(lastParts[1], 10, 64)
-
-					if ms < lastMS || (ms == lastMS && seq <= lastSeq) {
-						store.StreamStore.mu.Unlock()
-						conn.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
-						continue
-					}
-				}
-			}
-
-			// Build the field-value pairs
-			for i := 0; i < len(fields); i += 2 {
-				pair := []string{fields[i], fields[i+1]}
-				stream.values[entry_id] = strings.Join(pair, " ")
-			}
-
-			stream.lastID = entry_id
-			store.StreamStore.entry[stream_name] = stream
-			store.StreamStore.mu.Unlock()
-
-			conn.Write([]byte("+" + entry_id + "\r\n"))
-
+			xadd.HandleXadd(store, conn, args)
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}
