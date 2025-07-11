@@ -221,7 +221,7 @@ func HandleConnection(conn net.Conn) {
 			store.StreamStore.entry[stream_name].values[entry_id] = strings.Join(fields, " ")
 			store.StreamStore.mu.Unlock()
 
-			conn.Write([]byte(entry_id + "\r\n"))
+			conn.Write([]byte("+" + entry_id + "\r\n"))
 
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
