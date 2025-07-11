@@ -211,7 +211,7 @@ func HandleConnection(conn net.Conn) {
 				if !exists || len(stream.values) == 0 {
 					if ms < 0 || (ms == 0 && seq == 0) {
 						store.StreamStore.mu.Unlock()
-						conn.Write([]byte("-ERR The ID specified in XADD must be greater than 0-0\r\n"))
+						conn.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
 						continue
 					}
 				} else {
