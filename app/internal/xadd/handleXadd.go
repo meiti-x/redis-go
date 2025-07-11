@@ -41,6 +41,10 @@ func ResolveStreamID(entryID string, lastID string) (string, int64, uint64, erro
 	msPart := parts[0]
 	seqPart := parts[1]
 
+	if msPart == "0" && seqPart == "0" {
+		return "", 0, 0, fmt.Errorf("-ERR The ID specified in XADD must be greater than 0-0\r\n")
+	}
+
 	if msPart == "*" {
 		ms = time.Now().UnixMilli()
 	} else {
@@ -71,10 +75,6 @@ func ResolveStreamID(entryID string, lastID string) (string, int64, uint64, erro
 		if err != nil {
 			return "", 0, 0, fmt.Errorf("-ERR Invalid sequence number in stream ID\r\n")
 		}
-	}
-
-	if ms == 0 && seq == 0 {
-		return "", 0, 0, fmt.Errorf("-ERR The ID specified in XADD must be greater than 0-0\r\n")
 	}
 
 	return fmt.Sprintf("%d-%d", ms, seq), ms, seq, nil
