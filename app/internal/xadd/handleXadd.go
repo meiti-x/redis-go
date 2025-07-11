@@ -10,6 +10,76 @@ import (
 	redisStore "github.com/codecrafters-io/redis-starter-go/app/pkg/store"
 )
 
+func ResolveStreamID(entryID string, lastID string) (string, int64, uint64, error) {
+	var ms int64
+	var seq uint64
+
+	if entryID == "*" {
+		now := time.Now().UnixMilli()
+		if lastID != "" {
+			lastParts := strings.Split(lastID, "-")
+			lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
+			lastSeq, _ := strconv.ParseUint(lastParts[1], 10, 64)
+
+			if now == lastMS {
+				seq = lastSeq + 1
+			} else {
+				seq = 0
+			}
+		} else {
+			seq = 0
+		}
+		ms = now
+		return fmt.Sprintf("%d-%d", ms, seq), ms, seq, nil
+	}
+
+	parts := strings.Split(entryID, "-")
+	if len(parts) != 2 {
+		return "", 0, 0, fmt.Errorf("-ERR Invalid stream ID format\r\n")
+	}
+
+	msPart := parts[0]
+	seqPart := parts[1]
+
+	if msPart == "*" {
+		ms = time.Now().UnixMilli()
+	} else {
+		var err error
+		ms, err = strconv.ParseInt(msPart, 10, 64)
+		if err != nil {
+			return "", 0, 0, fmt.Errorf("-ERR Invalid milliseconds time in stream ID\r\n")
+		}
+	}
+
+	if seqPart == "*" {
+		if lastID != "" {
+			lastParts := strings.Split(lastID, "-")
+			lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
+			lastSeq, _ := strconv.ParseUint(lastParts[1], 10, 64)
+
+			if ms == lastMS {
+				seq = lastSeq + 1
+			} else {
+				seq = 0
+			}
+		} else {
+			seq = 0
+		}
+	} else {
+		var err error
+		seq, err = strconv.ParseUint(seqPart, 10, 64)
+		if err != nil {
+			return "", 0, 0, fmt.Errorf("-ERR Invalid sequence number in stream ID\r\n")
+		}
+	}
+
+	if ms == 0 && seq == 0 {
+		return "", 0, 0, fmt.Errorf("-ERR The ID specified in XADD must be greater than 0-0\r\n")
+	}
+
+	return fmt.Sprintf("%d-%d", ms, seq), ms, seq, nil
+}
+
 func HandleXadd(store *redisStore.Store, conn net.Conn, args []string) {
 	if len(args) < 3 {
 		conn.Write([]byte("-ERR wrong number of arguments for 'xadd' command\r\n"))
@@ -37,108 +107,34 @@ func HandleXadd(store *redisStore.Store, conn net.Conn, args []string) {
 		}
 	}
 
-	if entry_id == "*" {
-		now := time.Now().UnixMilli()
-		if stream.LastID != "" {
-			lastParts := strings.Split(stream.LastID, "-")
-			lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
-			lastSeq, _ := strconv.ParseUint(lastParts[1], 10, 64)
+	entryId, ms, seq, err := ResolveStreamID(entry_id, stream.LastID)
+	if err != nil {
+		conn.Write([]byte(err.Error()))
+		return
+	}
+	// Validate strictly increasing
+	if stream.LastID != "" {
+		lastParts := strings.Split(stream.LastID, "-")
+		lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
+		lastSeq, _ := strconv.ParseUint(lastParts[1], 10, 64)
 
-			if now == lastMS {
-				seq = lastSeq + 1
-			} else {
-				seq = 0
-			}
-		} else {
-			seq = 0
-		}
-		ms = now
-		entry_id = fmt.Sprintf("%d-%d", ms, seq)
-	} else {
-		entryParts := strings.Split(entry_id, "-")
-		if len(entryParts) != 2 {
+		if ms < lastMS || (ms == lastMS && seq <= lastSeq) {
 			store.StreamStore.Mu.Unlock()
-			conn.Write([]byte("-ERR Invalid stream ID format\r\n"))
+			conn.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
 			return
 		}
-
-		msPart := entryParts[0]
-		seqPart := entryParts[1]
-
-		var err1, err2 error
-
-		// Handle ms
-		if msPart == "*" {
-			ms = time.Now().UnixMilli()
-		} else {
-			ms, err1 = strconv.ParseInt(msPart, 10, 64)
-			if err1 != nil {
-				store.StreamStore.Mu.Unlock()
-				conn.Write([]byte("-ERR Invalid milliseconds time in stream ID\r\n"))
-				return
-			}
-		}
-
-		// Handle seq
-		if seqPart == "*" {
-			// Auto-increment if same ms
-			if stream.LastID != "" {
-				lastParts := strings.Split(stream.LastID, "-")
-				lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
-				lastSeq, _ := strconv.ParseUint(lastParts[1], 10, 64)
-
-				if ms == lastMS {
-					seq = lastSeq + 1
-				} else {
-					seq = 0
-				}
-			} else {
-				seq = 0
-			}
-		} else {
-			seq, err2 = strconv.ParseUint(seqPart, 10, 64)
-			if err2 != nil {
-				store.StreamStore.Mu.Unlock()
-				conn.Write([]byte("-ERR Invalid sequence number in stream ID\r\n"))
-				return
-			}
-		}
-
-		// Rebuild final entry_id after resolving "*"
-		entry_id = fmt.Sprintf("%d-%d", ms, seq)
-
-		// Validate > 0-0
-		if ms == 0 && seq == 0 {
-			store.StreamStore.Mu.Unlock()
-			conn.Write([]byte("-ERR The ID specified in XADD must be greater than 0-0\r\n"))
-			return
-		}
-
-		// Validate strictly increasing
-		if stream.LastID != "" {
-			lastParts := strings.Split(stream.LastID, "-")
-			lastMS, _ := strconv.ParseInt(lastParts[0], 10, 64)
-			lastSeq, _ := strconv.ParseUint(lastParts[1], 10, 64)
-
-			if ms < lastMS || (ms == lastMS && seq <= lastSeq) {
-				store.StreamStore.Mu.Unlock()
-				conn.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
-				return
-			}
-		}
-
 	}
 
 	// Build the field-value pairs
 	for i := 0; i < len(fields); i += 2 {
 		pair := []string{fields[i], fields[i+1]}
-		stream.Values[entry_id] = strings.Join(pair, " ")
+		stream.Values[entryId] = strings.Join(pair, " ")
 	}
 
-	stream.LastID = entry_id
+	stream.LastID = entryId
 	store.StreamStore.Entry[stream_name] = stream
 	store.StreamStore.Mu.Unlock()
 
-	conn.Write([]byte("+" + entry_id + "\r\n"))
+	conn.Write([]byte("+" + entryId + "\r\n"))
 
 }
