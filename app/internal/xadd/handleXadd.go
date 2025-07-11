@@ -138,6 +138,6 @@ func HandleXadd(store *redisStore.Store, conn net.Conn, args []string) {
 	store.StreamStore.Entry[stream_name] = stream
 	store.StreamStore.Mu.Unlock()
 
-	conn.Write([]byte("+" + entryId + "\r\n"))
+	conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(entryId), entryId)))
 
 }
