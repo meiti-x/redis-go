@@ -29,6 +29,7 @@ func ResolveStreamID(entryID string, lastID string) (string, int64, uint64, erro
 		} else {
 			seq = 0
 		}
+
 		ms = now
 		return fmt.Sprintf("%d-%d", ms, seq), ms, seq, nil
 	}
