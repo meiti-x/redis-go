@@ -193,7 +193,6 @@ func HandleConnection(conn net.Conn) {
 			stream_name := args[0]
 			entry_id := args[1]
 
-			// Validate entry_id if it's not "*"
 			if entry_id != "*" {
 				entryParts := strings.Split(entry_id, "-")
 				if len(entryParts) != 2 {
@@ -210,10 +209,9 @@ func HandleConnection(conn net.Conn) {
 				store.StreamStore.mu.Lock()
 				stream, exists := store.StreamStore.entry[stream_name]
 				if !exists || len(stream.values) == 0 {
-					// valid only if greater than 0-0
 					if ms < 0 || (ms == 0 && seq == 0) {
 						store.StreamStore.mu.Unlock()
-						conn.Write([]byte("-ERR The ID must be greater than 0-0\r\n"))
+						conn.Write([]byte("-ERR The ID specified in XADD must be greater than 0-0\r\n"))
 						continue
 					}
 				} else {
@@ -227,13 +225,11 @@ func HandleConnection(conn net.Conn) {
 						cms, _ := strconv.ParseInt(parts[0], 10, 64)
 						cseq, _ := strconv.ParseUint(parts[1], 10, 64)
 
-						// set max
 						if cms > lastMS || (cms == lastMS && cseq > lastSeq) {
 							lastMS = cms
 							lastSeq = cseq
 						}
 					}
-					// Now compare new ID
 					if ms < lastMS || (ms == lastMS && seq <= lastSeq) {
 						store.StreamStore.mu.Unlock()
 						conn.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
