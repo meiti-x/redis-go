@@ -132,8 +132,7 @@ func HandleConnection(conn net.Conn) {
 				return
 			}
 
-			isStream := strings.ToUpper(args[0]) == "STREAMS"
-			if !isStream {
+			if strings.ToUpper(args[0]) != "STREAMS" {
 				conn.Write([]byte("-ERR missing 'STREAMS' keyword\r\n"))
 				return
 			}
@@ -147,6 +146,7 @@ func HandleConnection(conn net.Conn) {
 				return
 			}
 
+			// Find the first entry with ID >= entryID
 			var selectedID, selectedValue string
 			for id, val := range streamMap.Values {
 				if id >= entryID {
@@ -161,6 +161,11 @@ func HandleConnection(conn net.Conn) {
 				conn.Write([]byte("-ERR entry does not exist\r\n"))
 				return
 			}
+
+			conn.Write([]byte("*1\r\n"))
+			conn.Write([]byte("*2\r\n"))
+			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(streamName), streamName)))
+			conn.Write([]byte("*1\r\n"))
 
 			entryStr := fmt.Sprintf("%s: %s", selectedID, selectedValue)
 			store.StreamStore.WriteStreamItems(conn, []string{entryStr})
