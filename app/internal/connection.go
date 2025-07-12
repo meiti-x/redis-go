@@ -118,36 +118,43 @@ func HandleConnection(conn net.Conn) {
 			}
 
 			if len(results) == 0 {
-				conn.Write([]byte("*0\r\n")) // Empty RESP array
+				conn.Write([]byte("*0\r\n"))
 				return
 			}
 
-			// Start outer array (number of entries)
 			conn.Write([]byte(fmt.Sprintf("*%d\r\n", len(results))))
 
-			for _, entry := range results {
-				parts := strings.SplitN(entry, ": ", 2)
-				if len(parts) != 2 {
-					continue
-				}
-				id := parts[0]
-				valueStr := parts[1]
+			store.StreamStore.WriteStreamItems(conn, results)
 
-				// Split the field-value string into an array
-				fields := strings.Fields(valueStr) // example: [temperature 36 humidity 95]
-
-				// Write array of 2: [id, [field, val, field, val...]]
-				conn.Write([]byte("*2\r\n"))
-				// 1) ID
-				conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(id), id)))
-
-				// 2) Inner array for field-value pairs
-				conn.Write([]byte(fmt.Sprintf("*%d\r\n", len(fields))))
-				for _, field := range fields {
-					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(field), field)))
-				}
+		case "XREAD":
+			if len(args) < 3 {
+				conn.Write([]byte("-ERR wrong number of arguments for 'xread' command\r\n"))
+				return
 			}
 
+			isStream := strings.ToUpper(args[0]) == "STREAMS"
+			stream_name := args[1]
+			entry_id := args[2]
+
+			if !isStream {
+				conn.Write([]byte("-ERR missing 'STREAMS' keyword\r\n"))
+				return
+			}
+
+			streamMap, exists := store.StreamStore.Entry[stream_name]
+			if !exists {
+				conn.Write([]byte("-ERR stream does not exist\r\n"))
+				return
+			}
+
+			streamValue, isExist := streamMap.Values[entry_id]
+			if !isExist {
+				conn.Write([]byte("-ERR entry does not exist\r\n"))
+				return
+			}
+
+			entryStr := fmt.Sprintf("%s: %s", entry_id, streamValue)
+			store.StreamStore.WriteStreamItems(conn, []string{entryStr})
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}

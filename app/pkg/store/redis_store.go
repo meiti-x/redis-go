@@ -2,7 +2,9 @@ package store
 
 import (
 	"fmt"
+	"net"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -117,7 +119,7 @@ func (s *StreamStore) GetRange(streamName, startID, endID string) ([]string, err
 			keys = append(keys, id)
 		}
 	}
-	sort.Strings(keys) // Ensures deterministic order
+	sort.Strings(keys)
 
 	var results []string
 	for _, id := range keys {
@@ -126,4 +128,26 @@ func (s *StreamStore) GetRange(streamName, startID, endID string) ([]string, err
 	}
 
 	return results, nil
+}
+
+func (s *StreamStore) WriteStreamItems(conn net.Conn, results []string) {
+	for _, entry := range results {
+		parts := strings.SplitN(entry, ": ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		id := parts[0]
+		valueStr := parts[1]
+
+		fields := strings.Fields(valueStr)
+		conn.Write([]byte("*2\r\n"))
+		// 1) ID
+		conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(id), id)))
+
+		// 2) Inner array for field-value pairs
+		conn.Write([]byte(fmt.Sprintf("*%d\r\n", len(fields))))
+		for _, field := range fields {
+			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(field), field)))
+		}
+	}
 }
