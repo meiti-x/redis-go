@@ -133,28 +133,38 @@ func HandleConnection(conn net.Conn) {
 			}
 
 			isStream := strings.ToUpper(args[0]) == "STREAMS"
-			stream_name := args[1]
-			entry_id := args[2]
-
 			if !isStream {
 				conn.Write([]byte("-ERR missing 'STREAMS' keyword\r\n"))
 				return
 			}
 
-			streamMap, exists := store.StreamStore.Entry[stream_name]
+			streamName := args[1]
+			entryID := args[2]
+
+			streamMap, exists := store.StreamStore.Entry[streamName]
 			if !exists {
 				conn.Write([]byte("-ERR stream does not exist\r\n"))
 				return
 			}
 
-			streamValue, isExist := streamMap.Values[entry_id]
-			if !isExist {
+			var selectedID, selectedValue string
+			for id, val := range streamMap.Values {
+				if id >= entryID {
+					if selectedID == "" || id < selectedID {
+						selectedID = id
+						selectedValue = val
+					}
+				}
+			}
+
+			if selectedID == "" {
 				conn.Write([]byte("-ERR entry does not exist\r\n"))
 				return
 			}
 
-			entryStr := fmt.Sprintf("%s: %s", entry_id, streamValue)
+			entryStr := fmt.Sprintf("%s: %s", selectedID, selectedValue)
 			store.StreamStore.WriteStreamItems(conn, []string{entryStr})
+
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}
