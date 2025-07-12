@@ -1,6 +1,4 @@
-Here’s an updated version of your README with the new **Stream** commands (`XADD`, `XRANGE`, `XREAD`) added, staying consistent with your tone and structure:
 
----
 
 # 🚀 RedisGO - A Mini Redis Clone in Go
 
@@ -50,5 +48,3 @@ Here’s an updated version of your README with the new **Stream** commands (`XA
 🔥 **Warning**: Not production-ready! Missing 99% of Redis features 😅.
 
 ---
-
-Let me know if you want to add usage examples for stream commands or diagrams for internal structure!
