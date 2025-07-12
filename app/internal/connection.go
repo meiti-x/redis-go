@@ -101,6 +101,53 @@ func HandleConnection(conn net.Conn) {
 			conn.Write([]byte("+none\r\n"))
 		case "XADD":
 			xadd.HandleXadd(store, conn, args)
+		case "XRANGE":
+			if len(args) < 3 {
+				conn.Write([]byte("-ERR wrong number of arguments for 'xrange' command\r\n"))
+				return
+			}
+
+			streamName := args[0]
+			startID := args[1]
+			endID := args[2]
+
+			results, err := store.StreamStore.GetRange(streamName, startID, endID)
+			if err != nil {
+				conn.Write([]byte("-ERR " + err.Error() + "\r\n"))
+				return
+			}
+
+			if len(results) == 0 {
+				conn.Write([]byte("*0\r\n")) // Empty RESP array
+				return
+			}
+
+			// Start outer array (number of entries)
+			conn.Write([]byte(fmt.Sprintf("*%d\r\n", len(results))))
+
+			for _, entry := range results {
+				parts := strings.SplitN(entry, ": ", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				id := parts[0]
+				valueStr := parts[1]
+
+				// Split the field-value string into an array
+				fields := strings.Fields(valueStr) // example: [temperature 36 humidity 95]
+
+				// Write array of 2: [id, [field, val, field, val...]]
+				conn.Write([]byte("*2\r\n"))
+				// 1) ID
+				conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(id), id)))
+
+				// 2) Inner array for field-value pairs
+				conn.Write([]byte(fmt.Sprintf("*%d\r\n", len(fields))))
+				for _, field := range fields {
+					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(field), field)))
+				}
+			}
+
 		default:
 			conn.Write([]byte("write a Valid command\r\n"))
 		}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -96,4 +97,30 @@ func (s *SetStore) cleanupExpiredItems() {
 			delete(s.Items, key)
 		}
 	}
+}
+
+func (s *StreamStore) GetRange(streamName, startID, endID string) ([]string, error) {
+	s.Mu.RLock()
+	defer s.Mu.RUnlock()
+
+	stream, exists := s.Entry[streamName]
+	if !exists {
+		return nil, fmt.Errorf("stream %s does not exist", streamName)
+	}
+
+	var keys []string
+	for id := range stream.Values {
+		if id >= startID && id <= endID {
+			keys = append(keys, id)
+		}
+	}
+	sort.Strings(keys) // Ensures deterministic order
+
+	var results []string
+	for _, id := range keys {
+		value := stream.Values[id]
+		results = append(results, fmt.Sprintf("%s: %s", id, value))
+	}
+
+	return results, nil
 }
