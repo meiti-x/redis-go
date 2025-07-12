@@ -110,6 +110,9 @@ func (s *StreamStore) GetRange(streamName, startID, endID string) ([]string, err
 
 	var keys []string
 	for id := range stream.Values {
+		if endID == "+" {
+			endID = "9999999999999-9999999999999" // Set a high value for endID :)))
+		}
 		if id >= startID && id <= endID {
 			keys = append(keys, id)
 		}
